@@ -14,7 +14,7 @@ namespace WindowsActiveTimeTracker
             m_StatsFilePath = Path.Combine(
                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                "WindowsActiveTimeTracker",
-               "stats.json");
+               "stats.txt");
 
             var recorder = new StatsRecorder(m_TimeResolution, m_StatsFilePath);
 
