@@ -12,29 +12,19 @@ namespace WindowsActiveTimeTracker
     public class StatsRecorder
     {
         private readonly TimeSpan m_TimeResolution;
-        private readonly string m_StatsFilePath;
+        private readonly StatFileManager m_StatFileManager;
         private const string FileSplitToken = "[===]";
 
-        private Dictionary<string, TimeSpan> m_ApplicationStats;
+        private readonly Dictionary<string, TimeSpan> m_ApplicationStats;
         private bool m_BusySaving;
+        private string m_LastStatsFilePath;
 
-        public StatsRecorder(TimeSpan timeResolution, string statsFilePath)
+        public StatsRecorder(TimeSpan timeResolution, string statFilesDirectory)
         {
             m_TimeResolution = timeResolution;
-            m_StatsFilePath = statsFilePath;
+            m_StatFileManager = new StatFileManager(statFilesDirectory);
 
             m_ApplicationStats = new Dictionary<string, TimeSpan>();
-        }
-
-        public void Initialize()
-        {
-            m_ApplicationStats.Clear();
-            ReadFileLines()
-                .ToList()
-                .ForEach(stat =>
-                {
-                    m_ApplicationStats.Add(stat.Title, TimeSpan.FromSeconds(stat.Seconds));
-                });
         }
 
         public void StartRecording()
@@ -65,6 +55,14 @@ namespace WindowsActiveTimeTracker
 
             var windowTitle = GetForegroundWindowTitle().Trim();
 
+            var currentStatsFilePath = m_StatFileManager.GetFilePath();
+            if (currentStatsFilePath != m_LastStatsFilePath)
+            {
+                //The file path either changes or it is on startup
+                Console.Out.WriteLine($"Stats file path changed so reloading. Current filepath is '{currentStatsFilePath}' and previous/last filepath is '{m_LastStatsFilePath ?? ""}'");
+                ReloadFromFileLines();
+            }
+
             if (!m_ApplicationStats.ContainsKey(windowTitle))
             {
                 m_ApplicationStats.Add(windowTitle, TimeSpan.FromMilliseconds(0));
@@ -74,14 +72,28 @@ namespace WindowsActiveTimeTracker
             SaveFileAsync();
         }
 
-        private FileLine[] ReadFileLines()
+        private void ReloadFromFileLines()
         {
-            if (!File.Exists(m_StatsFilePath))
+            m_ApplicationStats.Clear();
+
+            var statsFilePath = m_StatFileManager.GetFilePath();
+            ReadFileLines(statsFilePath)
+                .ToList()
+                .ForEach(stat =>
+                {
+                    m_ApplicationStats.Add(stat.Title, TimeSpan.FromSeconds(stat.Seconds));
+                });
+            m_LastStatsFilePath = statsFilePath;
+        }
+
+        private FileLine[] ReadFileLines(string statsFilePath)
+        {
+            if (!File.Exists(statsFilePath))
             {
                 return new FileLine[] { };
             }
 
-            return File.ReadLines(m_StatsFilePath)
+            return File.ReadLines(statsFilePath)
                 .Where(line => !string.IsNullOrWhiteSpace(line))
                 .Select(FileLine.FromString)
                 .Where(fileLine => !string.IsNullOrWhiteSpace(fileLine.Title))
@@ -100,13 +112,15 @@ namespace WindowsActiveTimeTracker
 
             try
             {
+                var statFilePath = m_StatFileManager.GetFilePath();
+
                 var lines = m_ApplicationStats
                     .Select(kv => new FileLine(kv.Key, kv.Value.TotalSeconds).ToStringLine());
 
-                var parentDir = Path.GetDirectoryName(m_StatsFilePath);
+                var parentDir = Path.GetDirectoryName(statFilePath);
                 Directory.CreateDirectory(parentDir);
 
-                File.WriteAllLines(m_StatsFilePath, lines);
+                File.WriteAllLines(statFilePath, lines);
             }
             catch (Exception exception)
             {
